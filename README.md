@@ -1,64 +1,64 @@
-# Forecasting GTA VI Trophy Rarity
+# GTA VI Trophy Rarity Forecast
 
-[![Bounty badge](https://make.fun/badge/gta6-trophy-rarity-forecast-01.svg)](https://make.fun/c/gta6-trophy-rarity-forecast-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-trophy-rarity-forecast-01)
-[![Rank badge](https://make.fun/badge/gta6-trophy-rarity-forecast-01/Whydiriki700/gta6-trophy-rarity-forecast/rank.svg)](https://make.fun/c/gta6-trophy-rarity-forecast-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-trophy-rarity-forecast-01)
-[![Reward badge](https://make.fun/badge/gta6-trophy-rarity-forecast-01/Whydiriki700/gta6-trophy-rarity-forecast/reward.svg)](https://make.fun/c/gta6-trophy-rarity-forecast-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-trophy-rarity-forecast-01)
+[![make.fun bounty](https://make.fun/badge/gta6-trophy-rarity-forecast-01.svg)](https://make.fun/bounty/gta6-trophy-rarity-forecast-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-trophy-rarity-forecast-01)
+[![rank](https://make.fun/badge/gta6-trophy-rarity-forecast-01/Whydiriki700/gta6-trophy-rarity-forecast/rank.svg)](https://make.fun/bounty/gta6-trophy-rarity-forecast-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-trophy-rarity-forecast-01)
+[![reward](https://make.fun/badge/gta6-trophy-rarity-forecast-01/Whydiriki700/gta6-trophy-rarity-forecast/reward.svg)](https://make.fun/bounty/gta6-trophy-rarity-forecast-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-trophy-rarity-forecast-01)
 
-This repository is my entry to the make.fun competition
-gta6-trophy-rarity-forecast-01. The question it answers is simple to
-state and awkward to forecast: for each of the 55 PlayStation 5
-trophies of Grand Theft Auto VI, what percentage of the players tracked
-by Exophase will have earned that trophy at the target time given in a
-case?
+An entry for the make.fun bounty
+[gta6-trophy-rarity-forecast-01](https://make.fun/bounty/gta6-trophy-rarity-forecast-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-trophy-rarity-forecast-01):
+forecast, for every PlayStation 5 trophy of Grand Theft Auto VI, the earn
+rate Exophase will report for it at a future moment — the percentage of
+tracked players who have earned that trophy — as five quantiles
+(5%, 25%, 50%, 75%, 95%) per trophy.
 
-## What the program does
+## How it works
 
-`main.py` reads every case file (`<id>.in`) in the input directory and
-writes a matching `<id>.out` file. Each output row holds five quantiles
-(at the 0.05, 0.25, 0.5, 0.75 and 0.95 levels) for one trophy, in trophy
-id order.
+Each case hands the program the full history of trophy-page reads taken
+before a checkpoint, and asks for the rates at a later target time. Every
+trophy is forecast on its own, from two complementary angles that are then
+averaged on the logit scale:
 
-The forecast for a trophy blends two projections in logit space:
+- **Structural path.** A rate is earners divided by tracked players, and
+  the two counts move for different reasons. The program projects each
+  count separately — a recency-weighted straight line through the log of
+  earners and the log of players, with slopes capped so nothing explodes —
+  and divides the projections. This is what lets the forecast fall when
+  the player pool is swelling faster than the earner pool, the usual
+  launch-week dilution pattern.
+- **Direct path.** A recency-weighted regression of the rate's logit
+  against ln(1 + hours since the series began), re-anchored at the last
+  fitted point. Its slope is shrunk toward zero in proportion to how
+  little data backs it, so a trophy seen twice stays near its last rate
+  instead of extrapolating wildly.
 
-1. A structural projection. Earners are recovered from each read as
-   rate times players tracked. Earners and players are each fitted in
-   log space against time with recency-weighted least squares and
-   projected forward with guarded slopes. Dividing the projected
-   earners by the projected players gives a rate that already contains
-   the dilution caused by a growing tracked pool.
-2. A direct projection. The logit of the observed rate is fitted
-   against ln(1 + hours) with the same recency weighting. The fitted
-   slope is shrunk toward zero for short series or series with few
-   distinct values, and the projection is anchored at the last fitted
-   point rather than at a single noisy read.
-
-The median is the average of the two projections when the structural
-one has enough data, and the direct projection on its own otherwise.
-The interval width combines the direct fit's residuals with the
-observed step-to-step logit volatility rescaled to the horizon. That
-width is floored at 0.5 * sqrt(horizon in days), so it is never
-narrower than a plain random-walk baseline, and capped at 2.5. Trophies
-with no usable reads fall back to the case-wide median rate with a wide
-band, and a case with no history at all gets a low flat forecast.
-Nothing in the program crashes on null rates or very short series.
+The spread around the median blends the direct fit's residuals with a
+random-walk term grown from the read-to-read logit steps over the horizon,
+is floored at half the square root of the horizon in days, and is capped —
+long horizons get honestly wide intervals, never absurd ones. A trophy
+with no usable reads falls back to a low neutral rate with a wide spread,
+so every case always produces a complete, valid answer. Rates are clamped
+to [0.01, 99.99] before any logit is taken, outputs are rounded to four
+decimals with quantiles kept ascending, and the program is fully
+deterministic: the same case always yields the same bytes.
 
 ## Running it
 
+The program is a single standard-library Python file (Python 3.13),
+`main.py` at the repository root. It reads every `*.in` case file from
+`$MAKEFUN_INPUT_DIR` (default `/input`) and writes one `<id>.out` JSON
+file per case to `$MAKEFUN_OUTPUT_DIR` (default `/output`):
+
 ```sh
-MAKEFUN_INPUT_DIR=/path/to/input MAKEFUN_OUTPUT_DIR=/path/to/output python3 main.py
+MAKEFUN_INPUT_DIR=input MAKEFUN_OUTPUT_DIR=out python3 main.py
 ```
 
-When the two environment variables are absent the program defaults to
-`/input` and `/output`. It needs Python 3.13 and the standard library
-only, uses no network, and is deterministic: repeated runs on the same
-input produce byte-identical files.
+Each output file holds exactly
+`{"trophies":[{"id":n,"q":[q05,q25,q50,q75,q95]}...]}` — one row per
+trophy, in id order, every value within 0–100.
 
-## Referral
+New to make.fun? Sign up through my referral link:
+https://make.fun/r/vwpycztt
 
-If you want to try make.fun competitions yourself, here is the
-referral link: https://make.fun/r/vwpycztt
+## License
 
-## Licence
-
-Released under the MIT licence; see the LICENSE file in this
-repository.
+MIT — see `LICENSE`.
